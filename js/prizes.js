@@ -1,55 +1,55 @@
 const THREE = window.THREE;
 const CANNON = window.CANNON;
 
-// 景品データの定義
-const PRIZE_TYPES = [
+// ぬいぐるみ景品の定義
+const PLUSH_TYPES = [
   {
-    name: 'Red Capsule',
-    type: 'capsule',
-    color: 0xff3b30,
-    score: 100,
-    radius: 0.35,
-    mass: 0.5
+    name: 'Pink Bear',
+    animal: 'bear',
+    color: 0xff8da1,
+    subColor: 0xffe4e8,
+    score: 300,
+    mass: 0.14
   },
   {
-    name: 'Blue Capsule',
-    type: 'capsule',
-    color: 0x007aff,
-    score: 100,
-    radius: 0.35,
-    mass: 0.5
+    name: 'Brown Bear',
+    animal: 'bear',
+    color: 0xc68642,
+    subColor: 0xf5deb3,
+    score: 250,
+    mass: 0.14
   },
   {
-    name: 'Yellow Capsule',
-    type: 'capsule',
-    color: 0xffcc00,
-    score: 100,
-    radius: 0.35,
-    mass: 0.5
+    name: 'White Bunny',
+    animal: 'bunny',
+    color: 0xffffff,
+    subColor: 0xffb6c1,
+    score: 350,
+    mass: 0.12
   },
   {
-    name: 'Purple Capsule',
-    type: 'capsule',
-    color: 0xaf52de,
-    score: 120,
-    radius: 0.35,
-    mass: 0.5
+    name: 'Lavender Bunny',
+    animal: 'bunny',
+    color: 0xc8a2c8,
+    subColor: 0xffe4e1,
+    score: 400,
+    mass: 0.12
   },
   {
-    name: 'Gift Box',
-    type: 'box',
-    color: 0xff9500,
-    score: 200,
-    size: 0.6,
-    mass: 0.6
+    name: 'Mint Cat',
+    animal: 'cat',
+    color: 0x98ff98,
+    subColor: 0xffffff,
+    score: 350,
+    mass: 0.13
   },
   {
-    name: 'Lucky Diamond',
-    type: 'gem',
-    color: 0x34c759,
+    name: 'Lemon Chick',
+    animal: 'chick',
+    color: 0xffe135,
+    subColor: 0xff9500,
     score: 500,
-    radius: 0.3,
-    mass: 0.4
+    mass: 0.11
   }
 ];
 
@@ -57,256 +57,385 @@ export class PrizeManager {
   constructor(worldManager) {
     this.wm = worldManager;
     this.prizes = [];
-    this.prizeCount = 28; // 生成する景品の総数
+    this.prizeCount = 12; // ぬいぐるみの総数
+    this.time = 0;
   }
 
-  // 景品を山積みにして生成
+  // ぬいぐるみを生成して山積みにする
   spawnPrizes() {
-    // 既存の景品があればクリアする
     this.clearAllPrizes();
 
-    // 生成範囲
-    // 落とし口 (x: -2.5 〜 -1.0, z: 1.0 〜 2.5) を避けて、
-    // 主に中央〜奥〜右側に山積みになるように配置する
-    const minX = -0.8;
-    const maxX = 1.8;
-    const minZ = -1.8;
+    const minX = -0.6;
+    const maxX = 1.65;
+    const minZ = -1.65;
     const maxZ = 0.8;
 
     for (let i = 0; i < this.prizeCount; i++) {
-      // ランダムに景品タイプを選択
-      const config = PRIZE_TYPES[Math.floor(Math.random() * PRIZE_TYPES.length)];
-      
-      // 少しばらつきを持たせたランダム位置
-      const rx = minX + Math.random() * (maxX - minX);
-      const rz = minZ + Math.random() * (maxZ - minZ);
-      
-      // 高さを段階的に変えて、上から落とすことで自然に積み重ねる
-      // 最初の数個は低めに、徐々に高く
-      const ry = 0.4 + (i * 0.18); 
+      const config = PLUSH_TYPES[i % PLUSH_TYPES.length];
 
-      let mesh, body;
+      // グリッド＋ランダムオフセットで重なりすぎないように配置
+      const col = i % 3;
+      const row = Math.floor(i / 3) % 2;
+      const layer = Math.floor(i / 6);
 
-      if (config.type === 'capsule') {
-        // カプセルの作成（上が半透明、下がカラーのプラスチック感）
-        mesh = this.createCapsuleMesh(config.color, config.radius);
-        
-        // 物理ボディは単純な球体
-        const shape = new CANNON.Sphere(config.radius);
-        body = new CANNON.Body({
-          mass: config.mass,
-          shape: shape,
-          linearDamping: 0.1,
-          angularDamping: 0.1
-        });
-      } else if (config.type === 'box') {
-        // ギフトボックスの作成
-        mesh = this.createBoxMesh(config.color, config.size);
-        
-        const halfSize = config.size / 2;
-        const shape = new CANNON.Box(new CANNON.Vec3(halfSize, halfSize, halfSize));
-        body = new CANNON.Body({
-          mass: config.mass,
-          shape: shape,
-          linearDamping: 0.1,
-          angularDamping: 0.1
-        });
-      } else {
-        // 宝石の作成
-        mesh = this.createGemMesh(config.color, config.radius);
-        
-        // 物理ボディは球体で近似（転がりやすく掴みやすくする）
-        const shape = new CANNON.Sphere(config.radius);
-        body = new CANNON.Body({
-          mass: config.mass,
-          shape: shape,
-          linearDamping: 0.1,
-          angularDamping: 0.1
-        });
-      }
+      const rx = minX + (col + 0.3 + Math.random() * 0.4) * ((maxX - minX) / 3);
+      const rz = minZ + (row + 0.3 + Math.random() * 0.4) * ((maxZ - minZ) / 2);
+      const ry = 0.8 + layer * 1.1 + (i % 3) * 0.15;
 
-      // 位置を設定し、わずかにランダムな回転をかける
-      body.position.set(rx, ry, rz);
-      body.quaternion.setFromEuler(
-        Math.random() * Math.PI,
-        Math.random() * Math.PI,
-        Math.random() * Math.PI
-      );
-
-      mesh.position.copy(body.position);
-      mesh.quaternion.copy(body.quaternion);
-
-      // シーンと物理世界に登録
-      this.wm.addBody(mesh, body);
-
-      this.prizes.push({
-        id: i,
-        mesh: mesh,
-        body: body,
-        name: config.name,
-        color: config.color,
-        score: config.score,
-        isGained: false
-      });
+      const plush = this.createPlush(config, rx, ry, rz, i);
+      this.prizes.push(plush);
     }
   }
 
-  // カプセル型のビジュアルメッシュ作成
-  createCapsuleMesh(colorHex, radius) {
-    const group = new THREE.Group();
-    
-    // 下半分：不透明のカラープラスチック
-    const bottomGeo = new THREE.SphereGeometry(radius, 16, 16, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
-    const bottomMat = new THREE.MeshStandardMaterial({
-      color: colorHex,
+  // ぬいぐるみの3Dビジュアルメッシュを構築（ゲーム内＆コレクション表示で共通利用）
+  buildPlushVisualMesh(config) {
+    const innerGroup = new THREE.Group();
+
+    const mainMat = new THREE.MeshStandardMaterial({
+      color: config.color,
+      roughness: 0.92,
+      metalness: 0.02
+    });
+    const subMat = new THREE.MeshStandardMaterial({
+      color: config.subColor,
+      roughness: 0.9,
+      metalness: 0.02
+    });
+    const eyeMat = new THREE.MeshStandardMaterial({
+      color: 0x1a1a1a,
       roughness: 0.2,
-      metalness: 0.1
+      metalness: 0.3
     });
-    const bottomMesh = new THREE.Mesh(bottomGeo, bottomMat);
-    bottomMesh.rotation.x = Math.PI; // 下に向ける
-    bottomMesh.castShadow = true;
-    bottomMesh.receiveShadow = true;
-    group.add(bottomMesh);
-
-    // 上半分：半透明のクリア乳白色プラスチック
-    const topGeo = new THREE.SphereGeometry(radius, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2);
-    const topMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
+    const blushMat = new THREE.MeshBasicMaterial({
+      color: 0xff5577,
       transparent: true,
-      opacity: 0.5,
-      roughness: 0.1,
-      metalness: 0.1
+      opacity: 0.55
     });
-    const topMesh = new THREE.Mesh(topGeo, topMat);
-    topMesh.castShadow = true;
-    group.add(topMesh);
-    
-    // 真ん中の黒い結合リング
-    const ringGeo = new THREE.CylinderGeometry(radius + 0.01, radius + 0.01, 0.03, 16);
-    const ringMat = new THREE.MeshBasicMaterial({ color: 0x222222 });
-    const ringMesh = new THREE.Mesh(ringGeo, ringMat);
-    group.add(ringMesh);
 
-    return group;
+    // 胴体 (Y: -0.18, 少しぽっちゃり)
+    const torsoMesh = new THREE.Mesh(new THREE.SphereGeometry(0.30, 20, 20), mainMat);
+    torsoMesh.scale.set(1.05, 0.95, 0.95);
+    torsoMesh.position.set(0, -0.18, 0);
+    torsoMesh.castShadow = true;
+    torsoMesh.receiveShadow = true;
+    innerGroup.add(torsoMesh);
+
+    // お腹のパッチ
+    const bellyMesh = new THREE.Mesh(new THREE.SphereGeometry(0.21, 16, 16), subMat);
+    bellyMesh.scale.set(0.9, 0.85, 0.5);
+    bellyMesh.position.set(0, -0.18, 0.21);
+    innerGroup.add(bellyMesh);
+
+    // 頭 (Y: +0.22, 大きめでツメが引っかかりやすいくびれを作る)
+    const headMesh = new THREE.Mesh(new THREE.SphereGeometry(0.32, 24, 24), mainMat);
+    headMesh.scale.set(1.08, 0.98, 1.0);
+    headMesh.position.set(0, 0.22, 0);
+    headMesh.castShadow = true;
+    headMesh.receiveShadow = true;
+    innerGroup.add(headMesh);
+
+    // 目
+    const leftEye = new THREE.Mesh(new THREE.SphereGeometry(0.042, 12, 12), eyeMat);
+    leftEye.position.set(-0.12, 0.26, 0.29);
+    const rightEye = leftEye.clone();
+    rightEye.position.x = 0.12;
+    innerGroup.add(leftEye, rightEye);
+
+    // ほっぺ
+    const leftBlush = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 12), blushMat);
+    leftBlush.scale.set(1.2, 0.7, 0.3);
+    leftBlush.position.set(-0.19, 0.19, 0.28);
+    const rightBlush = leftBlush.clone();
+    rightBlush.position.x = 0.19;
+    innerGroup.add(leftBlush, rightBlush);
+
+    // 口元（マズル・くちばし）
+    if (config.animal === 'chick') {
+      const beak = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.12, 12), subMat);
+      beak.rotation.x = Math.PI / 2;
+      beak.position.set(0, 0.20, 0.34);
+      innerGroup.add(beak);
+    } else {
+      const snout = new THREE.Mesh(new THREE.SphereGeometry(0.09, 14, 14), subMat);
+      snout.scale.set(1.2, 0.85, 0.7);
+      snout.position.set(0, 0.18, 0.29);
+      innerGroup.add(snout);
+
+      const nose = new THREE.Mesh(new THREE.SphereGeometry(0.03, 10, 10), eyeMat);
+      nose.position.set(0, 0.21, 0.35);
+      innerGroup.add(nose);
+    }
+
+    // 耳・トサカ
+    if (config.animal === 'bunny') {
+      const earGeo = new THREE.SphereGeometry(0.11, 14, 14);
+      const leftEar = new THREE.Mesh(earGeo, mainMat);
+      leftEar.scale.set(0.65, 2.2, 0.5);
+      leftEar.position.set(-0.15, 0.56, 0);
+      leftEar.rotation.z = 0.15;
+      leftEar.castShadow = true;
+
+      const rightEar = leftEar.clone();
+      rightEar.position.x = 0.15;
+      rightEar.rotation.z = -0.15;
+      innerGroup.add(leftEar, rightEar);
+    } else if (config.animal === 'cat') {
+      const earGeo = new THREE.ConeGeometry(0.13, 0.24, 12);
+      const leftEar = new THREE.Mesh(earGeo, mainMat);
+      leftEar.position.set(-0.22, 0.48, 0);
+      leftEar.rotation.z = 0.35;
+      leftEar.castShadow = true;
+
+      const rightEar = leftEar.clone();
+      rightEar.position.x = 0.22;
+      rightEar.rotation.z = -0.35;
+      innerGroup.add(leftEar, rightEar);
+    } else if (config.animal === 'chick') {
+      const tuft = new THREE.Mesh(new THREE.SphereGeometry(0.08, 12, 12), mainMat);
+      tuft.scale.set(0.7, 1.5, 0.7);
+      tuft.position.set(0, 0.54, 0);
+      innerGroup.add(tuft);
+    } else {
+      // クマ耳
+      const earGeo = new THREE.SphereGeometry(0.12, 14, 14);
+      const leftEar = new THREE.Mesh(earGeo, mainMat);
+      leftEar.position.set(-0.24, 0.46, 0);
+      leftEar.castShadow = true;
+      const rightEar = leftEar.clone();
+      rightEar.position.x = 0.24;
+      innerGroup.add(leftEar, rightEar);
+    }
+
+    // 手（横に広げてツメが脇の下に引っかかるようにする）
+    const armGeo = new THREE.SphereGeometry(0.11, 12, 12);
+    const leftArm = new THREE.Mesh(armGeo, mainMat);
+    leftArm.scale.set(1.3, 0.85, 0.85);
+    leftArm.position.set(-0.32, -0.10, 0.05);
+    leftArm.rotation.z = 0.3;
+    leftArm.castShadow = true;
+
+    const rightArm = leftArm.clone();
+    rightArm.position.x = 0.32;
+    rightArm.rotation.z = -0.3;
+    innerGroup.add(leftArm, rightArm);
+
+    // 足
+    const legGeo = new THREE.SphereGeometry(0.12, 12, 12);
+    const leftLeg = new THREE.Mesh(legGeo, mainMat);
+    leftLeg.scale.set(0.95, 0.85, 1.3);
+    leftLeg.position.set(-0.18, -0.38, 0.14);
+    leftLeg.castShadow = true;
+
+    const rightLeg = leftLeg.clone();
+    rightLeg.position.x = 0.18;
+    innerGroup.add(leftLeg, rightLeg);
+
+    return innerGroup;
   }
 
-  // ギフトボックス型のビジュアルメッシュ作成
-  createBoxMesh(colorHex, size) {
+  // MY PRIZES コレクション用に、獲得したぬいぐるみの3Dフィギュア画像（DataURL）をレンダリングして生成
+  renderPlushThumbnail(config) {
+    if (!this.thumbRenderer) {
+      this.thumbRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      this.thumbRenderer.setSize(160, 160);
+      this.thumbRenderer.setPixelRatio(2);
+    }
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 10);
+    camera.position.set(0, 0.15, 2.2);
+    camera.lookAt(0, 0.08, 0);
+
+    const ambLight = new THREE.AmbientLight(0xffffff, 0.85);
+    scene.add(ambLight);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+    dirLight.position.set(2, 3, 3);
+    scene.add(dirLight);
+
+    const rimLight = new THREE.DirectionalLight(0xff8da1, 0.5);
+    rimLight.position.set(-2, 1, -1);
+    scene.add(rimLight);
+
+    const figureMesh = this.buildPlushVisualMesh(config);
+    // 少し斜め向きにして立体的にかわいく見せる
+    figureMesh.rotation.y = -0.25;
+    figureMesh.rotation.x = 0.08;
+    scene.add(figureMesh);
+
+    this.thumbRenderer.render(scene, camera);
+    const dataUrl = this.thumbRenderer.domElement.toDataURL('image/png');
+
+    // メモリ解放
+    figureMesh.traverse((child) => {
+      if (child.isMesh) {
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) child.material.dispose();
+      }
+    });
+
+    return dataUrl;
+  }
+
+  createPlush(config, x, y, z, id) {
+    // 1. Three.js のビジュアルメッシュ作成
     const group = new THREE.Group();
+    const innerGroup = this.buildPlushVisualMesh(config); // ぷにぷに変形アニメーション用
+    group.add(innerGroup);
 
-    // 箱本体
-    const boxGeo = new THREE.BoxGeometry(size, size, size);
-    const boxMat = new THREE.MeshStandardMaterial({
-      color: colorHex,
-      roughness: 0.3,
-      metalness: 0.1
+    // 2. Cannon.js の複合剛体（Compound Shape）作成
+    // 頭と胴体のくびれ、耳や手足の出っ張りを物理形状として忠実に持たせることで、
+    // 隙間のあるツメでも「首元・脇の下・耳」に引っかけて持ち上げられるようにする
+    const body = new CANNON.Body({
+      mass: config.mass,
+      material: this.wm.plushMat,
+      linearDamping: 0.35,  // ふわっとした空気抵抗・減衰
+      angularDamping: 0.45
     });
-    const boxMesh = new THREE.Mesh(boxGeo, boxMat);
-    boxMesh.castShadow = true;
-    boxMesh.receiveShadow = true;
-    group.add(boxMesh);
 
-    // リボン（十文字に細いBoxを重ねる）
-    const ribbonMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      roughness: 0.4
-    });
-    const w = size + 0.01;
-    const t = 0.08; // リボンの太さ
-    
-    const rib1 = new THREE.Mesh(new THREE.BoxGeometry(w, t, t), ribbonMat);
-    const rib2 = new THREE.Mesh(new THREE.BoxGeometry(t, w, t), ribbonMat);
-    const rib3 = new THREE.Mesh(new THREE.BoxGeometry(t, t, w), ribbonMat);
-    group.add(rib1, rib2, rib3);
-    
-    // 天面のリボン結び（小さな球体）
-    const bow = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), ribbonMat);
-    bow.position.y = size / 2;
-    group.add(bow);
+    // 胴体コライダー
+    body.addShape(new CANNON.Sphere(0.28), new CANNON.Vec3(0, -0.18, 0));
+    // 頭コライダー（胴体との間に自然なくびれができる）
+    body.addShape(new CANNON.Sphere(0.31), new CANNON.Vec3(0, 0.22, 0));
+    // 両手コライダー
+    body.addShape(new CANNON.Sphere(0.10), new CANNON.Vec3(-0.31, -0.10, 0.05));
+    body.addShape(new CANNON.Sphere(0.10), new CANNON.Vec3(0.31, -0.10, 0.05));
+    // 両足コライダー
+    body.addShape(new CANNON.Sphere(0.11), new CANNON.Vec3(-0.18, -0.36, 0.12));
+    body.addShape(new CANNON.Sphere(0.11), new CANNON.Vec3(0.18, -0.36, 0.12));
+    // 両耳コライダー
+    if (config.animal === 'bunny') {
+      body.addShape(new CANNON.Sphere(0.10), new CANNON.Vec3(-0.15, 0.52, 0));
+      body.addShape(new CANNON.Sphere(0.10), new CANNON.Vec3(0.15, 0.52, 0));
+    } else {
+      body.addShape(new CANNON.Sphere(0.11), new CANNON.Vec3(-0.23, 0.45, 0));
+      body.addShape(new CANNON.Sphere(0.11), new CANNON.Vec3(0.23, 0.45, 0));
+    }
 
-    return group;
+    body.position.set(x, y, z);
+    // 少しランダムに傾けて自然な山積みにする
+    body.quaternion.setFromEuler(
+      (Math.random() - 0.5) * 0.8,
+      Math.random() * Math.PI * 2,
+      (Math.random() - 0.5) * 0.8
+    );
+
+    group.position.copy(body.position);
+    group.quaternion.copy(body.quaternion);
+
+    this.wm.addBody(group, body);
+
+    return {
+      id,
+      config,
+      mesh: group,
+      innerGroup,
+      body,
+      name: config.name,
+      color: config.color,
+      score: config.score,
+      isGained: false,
+      squishAmount: 0,
+      lastVelY: 0
+    };
   }
 
-  // 宝石型のビジュアルメッシュ作成
-  createGemMesh(colorHex, radius) {
-    // 20面体（正二十面体）を使用してクリスタルの質感を表現
-    const gemGeo = new THREE.IcosahedronGeometry(radius, 0);
-    const gemMat = new THREE.MeshStandardMaterial({
-      color: colorHex,
-      roughness: 0.1,
-      metalness: 0.8,
-      transparent: true,
-      opacity: 0.8
-    });
-    const mesh = new THREE.Mesh(gemGeo, gemMat);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    return mesh;
+  // 毎フレームのぷにぷに変形（Squash & Stretch）と獲得チェック
+  update(dt, crane) {
+    this.time += dt;
+
+    const clawCenter = new THREE.Vector3(crane.x, crane.y - 0.65, crane.z);
+    const isClawPressing = crane.openAngle < 0.45;
+
+    for (let i = 0; i < this.prizes.length; i++) {
+      const p = this.prizes[i];
+      if (p.isGained) continue;
+
+      // 1. 着地や衝突時の速度変化でぷにっと潰れる演出
+      const velY = p.body.velocity.y;
+      const accelY = Math.abs(velY - p.lastVelY);
+      p.lastVelY = velY;
+
+      if (accelY > 1.2) {
+        p.squishAmount = Math.min(0.28, p.squishAmount + accelY * 0.04);
+      }
+
+      // 2. ツメに挟まれているときにむぎゅっと柔らかそうに縮む演出
+      const distToClaw = p.mesh.position.distanceTo(clawCenter);
+      let pinchScaleXZ = 1.0;
+      let pinchScaleY = 1.0;
+      if (isClawPressing && distToClaw < 0.75) {
+        const factor = (1.0 - distToClaw / 0.75) * 0.16;
+        pinchScaleXZ = 1.0 - factor;
+        pinchScaleY = 1.0 + factor * 0.8;
+      }
+
+      // 減衰しながら元の形に戻るバネ挙動
+      p.squishAmount *= Math.pow(0.05, dt);
+
+      const sY = (1.0 - p.squishAmount) * pinchScaleY;
+      const sXZ = (1.0 + p.squishAmount * 0.6) * pinchScaleXZ;
+      p.innerGroup.scale.set(sXZ, sY, sXZ);
+    }
   }
 
   // 景品が落とし口に入ったかを毎フレームチェック
   checkGainedPrizes() {
     const gained = [];
-    
-    // 穴の境界（ワールド座標）:
-    // x: -2.5 〜 -1.0 (穴の右端が -1.0)
-    // z: 1.0 〜 2.5 (穴の奥端が 1.0)
-    // y: 底面が y=0。穴に落ちると y < 0 になる。
-    
+    // 落とし口の境界（x: -2.5 〜 -0.85, z: 0.85 〜 2.5）
+    const holeMaxX = -this.wm.machineWidth / 2 + this.wm.holeSize;
+    const holeMinZ = this.wm.machineDepth / 2 - this.wm.holeSize;
+
     for (let i = 0; i < this.prizes.length; i++) {
       const prize = this.prizes[i];
       if (prize.isGained) continue;
 
       const pos = prize.body.position;
-      
-      // 穴のXY範囲に入っており、yが0より低い（落下している）場合
-      if (pos.x < -0.9 && pos.z > 0.9 && pos.y < 0.1) {
+
+      // 穴のフチに半分以上かかっている場合、フチで引っかかって止まらないように穴の中心へ向かって少し滑り落とす力を加える
+      if (pos.x < holeMaxX + 0.15 && pos.z > holeMinZ - 0.15 && pos.y < 0.45) {
+        prize.body.wakeUp();
+        prize.body.velocity.x -= 1.2 * (1 / 60);
+        prize.body.velocity.z += 1.2 * (1 / 60);
+      }
+
+      // 穴の領域に入り、重心が床面付近（y < 0.15）まで下がったら獲得判定！
+      if (pos.x < holeMaxX + 0.1 && pos.z > holeMinZ - 0.1 && pos.y < 0.15) {
         prize.isGained = true;
         gained.push(prize);
-        
-        // 獲得時のビジュアルエフェクト（縮小アニメーション）
         this.animateGain(prize);
       }
     }
-    
+
     return gained;
   }
 
-  // 獲得した景品を小さくして消滅させるアニメーション
   animateGain(prize) {
     const mesh = prize.mesh;
     const body = prize.body;
-    
-    // 物理シミュレーションを無効化（固定する、または衝突判定をなくす）
+
     body.mass = 0;
     body.type = CANNON.Body.STATIC;
     body.updateMassProperties();
-    
+
     let scale = 1.0;
-    
     const shrink = () => {
-      scale -= 0.08;
+      scale -= 0.07;
       if (scale <= 0.05) {
-        // シーンと物理世界から完全に削除
         this.wm.removeBody(mesh, body);
-        
-        // 管理リストから除外
         const idx = this.prizes.findIndex(p => p.id === prize.id);
         if (idx !== -1) {
           this.prizes.splice(idx, 1);
         }
       } else {
         mesh.scale.set(scale, scale, scale);
-        // 上昇しながら消えるエフェクト
         mesh.position.y += 0.03;
         requestAnimationFrame(shrink);
       }
     };
-    
     shrink();
   }
 
-  // 全ての景品をクリア
   clearAllPrizes() {
     this.prizes.forEach(prize => {
       this.wm.removeBody(prize.mesh, prize.body);

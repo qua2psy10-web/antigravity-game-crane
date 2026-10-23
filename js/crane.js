@@ -4,193 +4,270 @@ const CANNON = window.CANNON;
 export class CraneManager {
   constructor(worldManager) {
     this.wm = worldManager;
-    
+
     // 移動制限
-    this.minX = -1.75; // 落とし口のX座標（初期位置）
-    this.maxX = 2.0;
-    this.minZ = -2.0;
-    this.maxZ = 1.75;  // 落とし口のZ座標（初期位置）
-    
+    this.minX = -1.65; // 落とし口のX座標（初期位置）
+    this.maxX = 1.85;
+    this.minZ = -1.85;
+    this.maxZ = 1.65;  // 落とし口のZ座標（初期位置）
+
     this.homeX = this.minX;
     this.homeZ = this.maxZ;
-    this.startY = 5.5; // 初期（天面近く）の高さ
-    
+    this.startY = 5.4; // 初期の高さ
+
     // 現在位置
     this.x = this.homeX;
     this.z = this.homeZ;
     this.y = this.startY;
-    
-    // 状態管理
-    this.speed = 1.5;
-    this.dropSpeed = 1.2;
-    this.liftSpeed = 1.0;
-    this.openAngle = 0.6; // 爪の開き度合い（ラジアン）
-    this.targetOpenAngle = 0.6;
-    
-    // 掴んだ景品の参照と物理的な接続（制約）
-    this.grabbedPrize = null;
-    this.grabConstraint = null;
-    this.grabStrength = 0.5; // 景品を保持する強さ（確率や時間で落ちるようにする調整用）
-    
+
+    // 速度設定
+    this.speed = 1.6;
+    this.dropSpeed = 1.35;
+    this.liftSpeed = 1.05;
+
+    // ★ ツメの開閉角度（ラジアン）
+    // 閉じたときは minCloseAngle = 0.04（先端同士がくっつかず、小さな隙間が残る角度）に設定
+    this.maxOpenAngle = 0.65;   // 大きく開いた状態
+    this.minCloseAngle = 0.04;  // 閉じた状態（しっかり内側に回り込みつつ、先端同士の間には隙間が残る）
+    this.openAngle = this.maxOpenAngle;
+    this.targetOpenAngle = this.maxOpenAngle;
+
     this.createCraneModels();
   }
 
   createCraneModels() {
     const metalMat = new THREE.MeshStandardMaterial({
-      color: 0xcccccc,
-      metalness: 0.9,
-      roughness: 0.1
+      color: 0xd8dce6,
+      metalness: 0.85,
+      roughness: 0.18
     });
-    
-    const neonPink = new THREE.MeshBasicMaterial({ color: 0xff007f });
-    
-    // 1. キャリッジ（天井を動く台座）
+
+    const headMat = new THREE.MeshStandardMaterial({
+      color: 0xff2d55,
+      metalness: 0.4,
+      roughness: 0.25
+    });
+
+    const tipMat = new THREE.MeshStandardMaterial({
+      color: 0x00f0ff,
+      roughness: 0.4,
+      metalness: 0.1,
+      emissive: 0x00f0ff,
+      emissiveIntensity: 0.25
+    });
+
+    // 1. キャリッジ（天井のレールを動く台座）
     this.carriageMesh = new THREE.Mesh(
-      new THREE.BoxGeometry(0.8, 0.2, 0.8),
+      new THREE.BoxGeometry(0.85, 0.22, 0.85),
       metalMat
     );
     this.carriageMesh.position.set(this.x, this.startY + 0.5, this.z);
     this.wm.scene.add(this.carriageMesh);
-    
-    // 2. アームヘッド（クローの付け根）の物理ボディ
-    // 物理エンジンで景品を検知・衝突するためにKinematicボディとして設定
-    const headRadius = 0.4;
-    this.headMesh = new THREE.Mesh(
-      new THREE.SphereGeometry(headRadius, 16, 16),
-      new THREE.MeshStandardMaterial({ color: 0xff007f, metalness: 0.5, roughness: 0.2 })
+
+    // 2. アームヘッド＋3本ツメのビジュアルグループ
+    this.craneGroup = new THREE.Group();
+    this.craneGroup.position.set(this.x, this.y, this.z);
+    this.wm.scene.add(this.craneGroup);
+
+    const headMesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.32, 0.38, 0.36, 20),
+      headMat
     );
-    this.headMesh.castShadow = true;
-    
-    const headShape = new CANNON.Sphere(headRadius);
-    this.headBody = new CANNON.Body({
-      mass: 0, // 静的またはKinematicに制御するため0にする
+    headMesh.castShadow = true;
+    this.craneGroup.add(headMesh);
+
+    // 3. 物理ボディ（KINEMATIC）
+    this.clawBody = new CANNON.Body({
+      mass: 0,
       type: CANNON.Body.KINEMATIC,
-      shape: headShape
+      material: this.wm.clawMat
     });
-    this.headBody.position.set(this.x, this.y, this.z);
-    
-    // 物理世界とThree.jsの同期に登録
-    this.wm.addBody(this.headMesh, this.headBody);
-    
-    // 3. ワイヤー（ビジュアルのみ。キャリッジとヘッドを繋ぐ）
-    const wireGeo = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(0, 0, 0),
-      new THREE.Vector3(0, 1, 0)
-    ]);
-    const wireMat = new THREE.LineBasicMaterial({ color: 0x888888 });
-    this.wire = new THREE.Line(wireGeo, wireMat);
-    this.wm.scene.add(this.wire);
-    
-    // 4. 爪 (3本の指) の作成
-    // 各指はheadMeshの子オブジェクトとして作成し、角度を変更することでアニメーションする
+    this.clawBody.position.set(this.x, this.y, this.z);
+
+    // ヘッド中心の物理球（Index 0）
+    this.clawBody.addShape(new CANNON.Sphere(0.32), new CANNON.Vec3(0, 0, 0));
+
+    // 4. 3本のツメ（120度間隔）と各ツメの物理コライダー球の構築
+    this.numClaws = 3;
     this.claws = [];
-    const numClaws = 3;
-    
-    for (let i = 0; i < numClaws; i++) {
-      const clawGroup = new THREE.Group();
-      // アームヘッドの周りに120度間隔で配置
-      const angle = (i * Math.PI * 2) / numClaws;
-      clawGroup.rotation.y = angle;
-      
-      // 爪のパーツ1: 根元から斜め下へ伸びる棒
-      const upperClaw = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.04, 0.04, 0.5),
+    this.clawAngles = [];
+
+    // 各ツメの物理コライダー配列（密度を高め、先端に「内向きの返し（スプーン状の受け皿）」を追加）
+    // minCloseAngle = 0.04 のときでも先端は r ≈ 0.11 で止まり、中央に約22cm相当の隙間が空きつつ、
+    // ぬいぐるみの首や胴体の下にしっかり潜り込んで支えられる形状
+    this.baseClawPoints = [
+      { r: 0.36, y: -0.24, radius: 0.060 }, // 上部アーム中間
+      { r: 0.46, y: -0.44, radius: 0.075 }, // 関節（エルボー）
+      { r: 0.36, y: -0.60, radius: 0.075 }, // 下部ツメ上部
+      { r: 0.24, y: -0.74, radius: 0.080 }, // 下部ツメ中間（すくい面）
+      { r: 0.14, y: -0.85, radius: 0.085 }, // ツメ先端のラバーパッド
+      { r: 0.09, y: -0.87, radius: 0.075 }  // 先端の内側返し（下から支えるフック）
+    ];
+
+    for (let i = 0; i < this.numClaws; i++) {
+      const yaw = (i * Math.PI * 2) / this.numClaws + Math.PI / 6;
+      this.clawAngles.push(yaw);
+
+      // 回転のルートグループ（Y軸で120度ずつ配置）
+      const yawGroup = new THREE.Group();
+      yawGroup.rotation.y = yaw;
+
+      // 開閉ヒンジグループ（付け根 r=0.28, y=-0.08 を中心に Z軸回転で開閉する）
+      const pivotGroup = new THREE.Group();
+      pivotGroup.position.set(0.28, -0.08, 0);
+
+      // 上部アームメッシュ
+      const upperLen = 0.43;
+      const upperMesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.04, 0.045, upperLen, 12),
         metalMat
       );
-      upperClaw.position.set(0.2, -0.2, 0);
-      upperClaw.rotation.z = -0.3; // 外側に少し開く
-      clawGroup.add(upperClaw);
-      
-      // 爪のパーツ2: 内側に曲がった先の爪
-      const lowerClaw = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.04, 0.01, 0.4),
+      // 付け根(0,0,0) から エルボー(0.20, -0.38, 0) へ配置
+      upperMesh.position.set(0.10, -0.19, 0);
+      upperMesh.rotation.z = Math.atan2(0.20, 0.38);
+      upperMesh.castShadow = true;
+      pivotGroup.add(upperMesh);
+
+      // エルボー関節メッシュ
+      const elbowMesh = new THREE.Mesh(
+        new THREE.SphereGeometry(0.055, 12, 12),
         metalMat
       );
-      lowerClaw.position.set(0.3, -0.5, 0);
-      lowerClaw.rotation.z = 0.5; // 内側に曲げる
-      clawGroup.add(lowerClaw);
-      
-      // 先端にゴムキャップのような滑り止め（ビジュアル）
-      const tip = new THREE.Mesh(
-        new THREE.SphereGeometry(0.05, 8, 8),
-        new THREE.MeshBasicMaterial({ color: 0x00f0ff })
-      );
-      tip.position.set(0.2, -0.68, 0);
-      clawGroup.add(tip);
-      
-      // ヘッドの子にする
-      this.headMesh.add(clawGroup);
-      this.claws.push(clawGroup);
-    }
-  }
+      elbowMesh.position.set(0.20, -0.38, 0);
+      pivotGroup.add(elbowMesh);
 
-  // クレーンの位置とワイヤーの描画更新
-  update(dt, currentState) {
-    // 物理ボディの座標をプログラム側（X, Y, Z）に更新
-    this.headBody.position.set(this.x, this.y, this.z);
-    
-    // 台座（キャリッジ）はアームの真上（天井付近）を追従
-    this.carriageMesh.position.set(this.x, this.startY + 0.5, this.z);
-    
-    // ワイヤーの長さを更新
-    const wirePositions = this.wire.geometry.attributes.position;
-    // 始点: キャリッジの位置（ローカル座標またはワールド座標から調整）
-    wirePositions.setXYZ(0, this.x, this.startY + 0.4, this.z);
-    // 終点: アームヘッドの位置
-    wirePositions.setXYZ(1, this.x, this.y, this.z);
-    wirePositions.needsUpdate = true;
-    
-    // 爪の開閉アニメーション
-    // 目標角度に向けて徐々に回転させる（補間）
-    this.openAngle += (this.targetOpenAngle - this.openAngle) * 0.1;
-    this.claws.forEach((claw) => {
-      // 爪のZ回転を開き角度に連動させる
-      // 開いているときは外側に開き、閉じているときは内側にする
-      claw.children[0].rotation.z = -this.openAngle;
-      // 先端部分もそれに合わせて調整
-      claw.children[1].rotation.z = this.openAngle * 0.8;
-      claw.children[1].position.set(
-        Math.sin(this.openAngle) * 0.4 + 0.1,
-        -Math.cos(this.openAngle) * 0.5,
-        0
+      // 下部ツメメッシュ（内側にカーブしてすくい上げる形状）
+      const lowerLen = 0.56;
+      const lowerMesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.042, 0.025, lowerLen, 12),
+        metalMat
       );
-      claw.children[2].position.set(
-        Math.sin(this.openAngle) * 0.4 + 0.05,
-        -Math.cos(this.openAngle) * 0.5 - 0.18,
-        0
-      );
-    });
+      // エルボー(0.20, -0.38, 0) から 先端(-0.21, -0.80, 0) へ配置
+      lowerMesh.position.set(-0.005, -0.59, 0);
+      lowerMesh.rotation.z = -Math.atan2(0.41, 0.42);
+      lowerMesh.castShadow = true;
+      pivotGroup.add(lowerMesh);
 
-    // 掴んだ景品が接続されている場合、アームの揺れに合わせて多少動きを安定させる
-    if (this.grabbedPrize && this.grabConstraint) {
-      // アームが上昇・移動する際、たまに「するっと落ちる」効果を演出
-      // 急な移動や上昇のタイミングでランダムにジョイントが切れるスリルを作る
-      if (currentState === 'LIFTING' || currentState === 'RETURNING') {
-        const dropChance = 0.0008 * (1.0 - this.grabStrength); // 確率
-        if (Math.random() < dropChance) {
-          this.releasePrize();
-        }
+      // 先端のラバーキャップ（少し平らな引っかかりを作る）
+      const tipMesh = new THREE.Mesh(
+        new THREE.SphereGeometry(0.06, 12, 12),
+        tipMat
+      );
+      tipMesh.scale.set(1.2, 0.8, 1.1);
+      tipMesh.position.set(-0.21, -0.80, 0);
+      pivotGroup.add(tipMesh);
+
+      yawGroup.add(pivotGroup);
+      this.craneGroup.add(yawGroup);
+      this.claws.push(pivotGroup);
+
+      // このツメに対応する物理球コライダーを clawBody に追加
+      for (let j = 0; j < this.baseClawPoints.length; j++) {
+        const pt = this.baseClawPoints[j];
+        this.clawBody.addShape(new CANNON.Sphere(pt.radius), new CANNON.Vec3(0, -0.5, 0));
       }
     }
+
+    this.wm.physicsWorld.addBody(this.clawBody);
+
+    // 5. ワイヤー
+    const wireGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(this.x, this.startY + 0.4, this.z),
+      new THREE.Vector3(this.x, this.y, this.z)
+    ]);
+    const wireMat = new THREE.LineBasicMaterial({ color: 0xaaaaaa });
+    this.wire = new THREE.Line(wireGeo, wireMat);
+    this.wm.scene.add(this.wire);
+
+    // 初回のコライダー位置更新
+    this.updateClawPhysicsShapes();
   }
 
-  // X方向（右）へ移動
+  // 現在の openAngle に応じて、物理ボディ内の各ツメの球体コライダーのオフセット座標を更新
+  updateClawPhysicsShapes() {
+    const pivotR = 0.28;
+    const pivotY = -0.08;
+    const cosA = Math.cos(this.openAngle);
+    const sinA = Math.sin(this.openAngle);
+
+    let shapeIdx = 1; // 0番目はヘッド中心の球体
+    for (let i = 0; i < this.numClaws; i++) {
+      const yaw = this.clawAngles[i];
+      const cosYaw = Math.cos(yaw);
+      const sinYaw = Math.sin(yaw);
+
+      for (let j = 0; j < this.baseClawPoints.length; j++) {
+        const pt = this.baseClawPoints[j];
+        // ピボットからの相対座標
+        const relR = pt.r - pivotR;
+        const relY = pt.y - pivotY;
+
+        // Z軸回転（openAngle が増えると外側＋上方向へ開く）
+        const rotR = pivotR + (relR * cosA - relY * sinA);
+        const rotY = pivotY + (relR * sinA + relY * cosA);
+
+        // Y軸回転（3方向への展開）
+        const wx = rotR * cosYaw;
+        const wz = -rotR * sinYaw;
+
+        this.clawBody.shapeOffsets[shapeIdx].set(wx, rotY, wz);
+        shapeIdx++;
+      }
+    }
+    this.clawBody.updateBoundingRadius();
+  }
+
+  update(dt, currentState) {
+    const prevX = this.clawBody.position.x;
+    const prevY = this.clawBody.position.y;
+    const prevZ = this.clawBody.position.z;
+
+    // 物理ボディの位置と速度を更新（KINEMATICボディが正しく摩擦と押し出し力を発揮できるように速度もセット）
+    this.clawBody.position.set(this.x, this.y, this.z);
+    if (dt > 0.0001) {
+      this.clawBody.velocity.set(
+        (this.x - prevX) / dt,
+        (this.y - prevY) / dt,
+        (this.z - prevZ) / dt
+      );
+    }
+
+    // Three.js の描画位置を更新
+    this.craneGroup.position.set(this.x, this.y, this.z);
+    this.carriageMesh.position.set(this.x, this.startY + 0.5, this.z);
+
+    // ワイヤー更新
+    const wirePositions = this.wire.geometry.attributes.position;
+    wirePositions.setXYZ(0, this.x, this.startY + 0.4, this.z);
+    wirePositions.setXYZ(1, this.x, this.y, this.z);
+    wirePositions.needsUpdate = true;
+
+    // ツメの開閉アニメーション（閉じる時はぬいぐるみをしっかり挟み込む速度で動かす）
+    const lerpSpeed = this.targetOpenAngle < this.openAngle ? 4.5 : 6.0;
+    this.openAngle += (this.targetOpenAngle - this.openAngle) * Math.min(1.0, lerpSpeed * dt);
+
+    // ビジュアルのツメ回転更新
+    for (let i = 0; i < this.claws.length; i++) {
+      this.claws[i].rotation.z = this.openAngle;
+    }
+
+    // 物理コライダーのツメ形状を更新
+    this.updateClawPhysicsShapes();
+  }
+
   moveRight(dt) {
     this.x += this.speed * dt;
     if (this.x > this.maxX) this.x = this.maxX;
   }
 
-  // Z方向（奥）へ移動
   moveForward(dt) {
-    this.z -= this.speed * dt; // Z負方向が奥
+    this.z -= this.speed * dt;
     if (this.z < this.minZ) this.z = this.minZ;
   }
 
-  // 初期位置に戻る
   returnToHome(dt) {
     let homeReached = true;
-    
-    // X軸移動
+
     const dx = this.homeX - this.x;
     if (Math.abs(dx) > 0.05) {
       this.x += Math.sign(dx) * this.speed * dt;
@@ -198,8 +275,7 @@ export class CraneManager {
     } else {
       this.x = this.homeX;
     }
-    
-    // Z軸移動
+
     const dz = this.homeZ - this.z;
     if (Math.abs(dz) > 0.05) {
       this.z += Math.sign(dz) * this.speed * dt;
@@ -207,101 +283,66 @@ export class CraneManager {
     } else {
       this.z = this.homeZ;
     }
-    
+
     return homeReached;
   }
 
-  // アーム下降
-  descend(dt, targetY) {
+  // ぬいぐるみの山の高さや床に合わせて降下する
+  descend(dt, targetY, prizes) {
     this.y -= this.dropSpeed * dt;
-    if (this.y < targetY) {
-      this.y = targetY;
-      return true; // 下降完了
-    }
-    return false;
-  }
 
-  // アーム上昇
-  ascend(dt) {
-    this.y += this.liftSpeed * dt;
-    if (this.y > this.startY) {
-      this.y = this.startY;
-      return true; // 上昇完了
-    }
-    return false;
-  }
-
-  // 爪を開く
-  open() {
-    this.targetOpenAngle = 0.7; // 大きく開く
-  }
-
-  // 爪を閉じる
-  close() {
-    this.targetOpenAngle = 0.15; // 閉じる
-  }
-
-  // 周囲の景品を検知して掴む
-  attemptGrab(prizes) {
-    this.close();
-    
-    // 爪が閉じる時間を見越して少し待ってから判定するのが本来ですが、
-    // ここで掴む対象の景品を物理ジョイントで接続します。
-    // アームヘッド下部（爪の先端付近）のワールド座標
-    const grabPoint = new CANNON.Vec3(this.x, this.y - 0.7, this.z);
-    
-    let closestPrize = null;
-    let minDistance = 0.8; // 掴める最大半径 (この範囲内にある景品が対象)
-    
-    prizes.forEach(prize => {
-      const dist = prize.body.position.vsub(grabPoint).length();
-      if (dist < minDistance) {
-        minDistance = dist;
-        closestPrize = prize;
+    // 真下にぬいぐるみがあるかチェックし、胴体の下までツメがしっかり潜り込む深さで止める
+    if (prizes) {
+      for (let i = 0; i < prizes.length; i++) {
+        const p = prizes[i];
+        if (p.isGained) continue;
+        const dx = p.body.position.x - this.x;
+        const dz = p.body.position.z - this.z;
+        const horizontalDist = Math.sqrt(dx * dx + dz * dz);
+        // ぬいぐるみの真上付近にある場合、ツメの先端(y - 0.87)がぬいぐるみの下半身・首の下まで届く高さ(p.y + 0.42)までしっかり降ろす
+        if (horizontalDist < 0.38) {
+          const dynamicTargetY = Math.max(targetY, p.body.position.y + 0.42);
+          if (this.y <= dynamicTargetY) {
+            this.y = dynamicTargetY;
+            return true;
+          }
+        }
       }
-    });
-    
-    if (closestPrize) {
-      this.grabbedPrize = closestPrize;
-      
-      // アームと景品を物理ジョイント（PointToPointConstraint）で接続
-      // ローカル座標での接続位置を計算
-      const localPivotA = new CANNON.Vec3(0, -0.65, 0); // アームの中心から少し下
-      
-      // 景品のローカル座標系でのピボット（中心点）
-      const localPivotB = new CANNON.Vec3(0, 0, 0);
-      
-      this.grabConstraint = new CANNON.PointToPointConstraint(
-        this.headBody,
-        localPivotA,
-        this.grabbedPrize.body,
-        localPivotB
-      );
-      
-      // 物理世界に追加
-      this.wm.physicsWorld.addConstraint(this.grabConstraint);
-      
-      // 景品の重さによって掴む強さ（キープ力）をランダムに決定
-      // 景品ごとに設定されたベース摩擦などに依存
-      this.grabStrength = 0.4 + Math.random() * 0.6; // 0.4 〜 1.0
-      
-      // 景品が少し揺れるように、減衰を設定できれば良いが、Cannon.jsのP2P制約はデフォルトで少し遊びがある
-      console.log("Grabbed prize:", closestPrize.name);
+    }
+
+    if (this.y <= targetY) {
+      this.y = targetY;
       return true;
     }
-    
-    console.log("Nothing grabbed.");
     return false;
   }
 
-  // 掴んでいる景品をリリースする（離す）
-  releasePrize() {
-    if (this.grabConstraint) {
-      this.wm.physicsWorld.removeConstraint(this.grabConstraint);
-      this.grabConstraint = null;
+  ascend(dt) {
+    this.y += this.liftSpeed * dt;
+    if (this.y >= this.startY) {
+      this.y = this.startY;
+      return true;
     }
-    this.grabbedPrize = null;
+    return false;
+  }
+
+  // ツメを大きく開く
+  open() {
+    this.targetOpenAngle = this.maxOpenAngle;
+  }
+
+  // ツメを閉じる（完全には閉じず、minCloseAngle の隙間を残す）
+  close() {
+    this.targetOpenAngle = this.minCloseAngle;
+  }
+
+  // 物理的なツメの挟み込みを開始（人工的なConstraint吸着は使わず、純粋にツメの形状と摩擦で掴む）
+  attemptGrab() {
+    this.close();
+  }
+
+  // ツメを開いてぬいぐるみを離す
+  releasePrize() {
     this.open();
-    console.log("Released prize.");
   }
 }

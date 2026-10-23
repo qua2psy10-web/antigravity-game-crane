@@ -66,7 +66,7 @@
         </div>
         <div class="stat-box" id="coin-box">
           <span class="stat-label">COINS</span>
-          <span class="stat-value" id="coin-value">0</span>
+          <span class="stat-value" id="coin-value">5</span>
         </div>
       </div>
     </header>
@@ -77,7 +77,7 @@
         <!-- Three.jsのCanvasがここに挿入されます -->
         
         <!-- ゲーム内の案内メッセージ -->
-        <div id="game-message" class="pulse">INSERT COIN TO START</div>
+        <div id="game-message" class="pulse">USE 1 COIN TO START (5 LEFT)</div>
       </div>
 
       <!-- 操作用コントロールパネル -->
@@ -96,7 +96,7 @@
           
           <div class="controls-layout">
             <button id="insert-coin-btn" class="btn btn-yellow">
-              <span class="btn-inner">COIN (¥100)</span>
+              <span class="btn-inner" id="coin-btn-label">PLAY (USE 1 COIN)</span>
             </button>
             
             <div class="joystick-area">
@@ -116,7 +116,7 @@
 
       <!-- 獲得した景品コレクション -->
       <section class="collection-panel">
-        <h3>MY PRIZES</h3>
+        <h3>MY PRIZES <span id="prize-count-label">(0)</span></h3>
         <div id="prize-list" class="prize-list">
           <!-- 獲得した景品が動的に追加されます -->
           <div class="no-prizes">No prizes yet!</div>
@@ -126,7 +126,7 @@
 
     <!-- フッター（操作説明） -->
     <footer class="game-footer">
-      <p>操作方法: コインを入れてから「RIGHT (1)」ボタンを長押しして右移動 ➔ 「FORWARD (2)」ボタンを長押しして奥移動</p>
+      <p>5コインチャレンジ：5回のプレイでいくつぬいぐるみをゲットできるか挑戦！「PLAY」で1枚使ってスタート ➔ 「RIGHT (1)」長押し ➔ 「FORWARD (2)」長押し</p>
     </footer>
   </div>
 

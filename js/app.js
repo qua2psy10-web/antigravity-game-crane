@@ -11,31 +11,33 @@ class GameApp {
     this.prizeMgr = new PrizeManager(this.wm);
     
     // ゲームステート
-    // States: 'WAIT_COIN', 'READY', 'MOVE_X', 'READY_FORWARD', 'MOVE_Z', 'DESCENDING', 'GRABBING', 'ASCENDING', 'RETURNING', 'RELEASING', 'RESETTING'
+    // States: 'WAIT_COIN', 'READY', 'MOVE_X', 'READY_FORWARD', 'MOVE_Z', 'DESCENDING', 'GRABBING', 'ASCENDING', 'RETURNING', 'RELEASING', 'RESETTING', 'GAME_OVER'
     this.state = 'WAIT_COIN';
     
-    // ゲームデータ
+    // 5コインチャレンジ用データ
+    this.initialCoins = 5;
+    this.coins = this.initialCoins;
     this.score = 0;
-    this.coins = 0;
+    this.gainedCount = 0;
     this.timer = 0;
-    this.maxPlayTime = 15; // 持ち時間
+    this.maxPlayTime = 15;
     this.timerInterval = null;
     
     // キー入力・ボタン押下状態
     this.isButton1Pressed = false; // 右移動用
     this.isButton2Pressed = false; // 奥移動用
     
-    // アーム下降時のターゲットの高さ
-    this.grabHeight = 1.35;
+    // アーム下降時の最低高さ
+    this.grabHeight = 1.15;
     
-    // タイマー管理用
     this.clock = new THREE.Clock();
     
     this.initDOM();
     this.initEvents();
     
-    // 初回景品生成
+    // 初回のぬいぐるみ生成
     this.prizeMgr.spawnPrizes();
+    this.updateUI();
     
     // ゲームループ開始
     this.animate();
@@ -49,15 +51,17 @@ class GameApp {
       timer: document.getElementById('timer-text'),
       message: document.getElementById('game-message'),
       btnCoin: document.getElementById('insert-coin-btn'),
+      btnCoinLabel: document.getElementById('coin-btn-label'),
       btnRight: document.getElementById('btn-right'),
       btnForward: document.getElementById('btn-forward'),
-      prizeList: document.getElementById('prize-list')
+      prizeList: document.getElementById('prize-list'),
+      prizeCountLabel: document.getElementById('prize-count-label')
     };
   }
 
   initEvents() {
-    // 1. コイン投入
-    this.dom.btnCoin.addEventListener('click', () => this.insertCoin());
+    // 1. PLAY（コインを1枚使って開始 / 終了後はリトライ）ボタン
+    this.dom.btnCoin.addEventListener('click', () => this.onCoinButtonClick());
     
     // 2. 「ボタン1 (右)」の操作イベント（マウス・タッチ）
     const startRightMove = (e) => {
@@ -74,6 +78,7 @@ class GameApp {
       if (this.state === 'MOVE_X') {
         this.isButton1Pressed = false;
         this.state = 'READY_FORWARD';
+        this.setMessage('HOLD "FORWARD" TO MOVE CLAW');
         this.updateUI();
       }
     };
@@ -108,10 +113,13 @@ class GameApp {
     this.dom.btnForward.addEventListener('touchend', stopForwardMove);
     this.dom.btnForward.addEventListener('mouseleave', stopForwardMove);
 
-    // 4. キーボード操作サポート (1: 右移動, 2: 奥移動, C: コイン)
+    // 4. キーボード操作サポート (1: 右移動, 2: 奥移動, C/Space/Enter: コインを使ってスタート)
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'c' || e.key === 'C') {
-        this.insertCoin();
+      if (e.key === 'c' || e.key === 'C' || e.key === ' ') {
+        if (this.state === 'WAIT_COIN' || this.state === 'GAME_OVER') {
+          e.preventDefault();
+          this.onCoinButtonClick();
+        }
       }
       if (e.key === '1') {
         if (this.state === 'READY') {
@@ -137,6 +145,7 @@ class GameApp {
           this.isButton1Pressed = false;
           this.dom.btnRight.classList.remove('active');
           this.state = 'READY_FORWARD';
+          this.setMessage('HOLD "FORWARD" TO MOVE CLAW');
           this.updateUI();
         }
       }
@@ -150,41 +159,59 @@ class GameApp {
     });
   }
 
-  // コイン投入処理
-  insertCoin() {
-    this.coins++;
-    this.dom.coins.textContent = this.coins;
-    
-    // ネオン発光エフェクトのようなフラッシュアニメーションをCSSに指示
-    this.dom.coins.style.animation = 'none';
-    setTimeout(() => {
-      this.dom.coins.style.animation = 'popIn 0.3s ease-out';
-    }, 10);
-    
-    if (this.state === 'WAIT_COIN') {
+  // コインボタンが押された時の処理（1枚消費して1プレイ開始、または5回終了後のリセット）
+  onCoinButtonClick() {
+    if (this.state === 'GAME_OVER') {
+      this.resetChallenge();
+      return;
+    }
+
+    if (this.state === 'WAIT_COIN' && this.coins > 0) {
       this.startPlay();
     }
   }
 
-  // ゲームプレイ開始
+  // 1コイン消費して1回分のプレイを開始
   startPlay() {
     if (this.coins <= 0) return;
     
     this.coins--;
     this.dom.coins.textContent = this.coins;
     
+    this.dom.coins.style.animation = 'none';
+    setTimeout(() => {
+      this.dom.coins.style.animation = 'popIn 0.3s ease-out';
+    }, 10);
+    
+    const attemptNum = this.initialCoins - this.coins;
     this.state = 'READY';
     this.timer = this.maxPlayTime;
+    this.crane.open();
     
-    // メッセージとUIの更新
-    this.setMessage('HOLD "RIGHT" TO MOVE CLAW');
+    this.setMessage(`TRY ${attemptNum} / ${this.initialCoins} : HOLD "RIGHT" TO MOVE`);
     this.updateUI();
     
-    // タイマー開始
     this.startTimer();
   }
 
-  // タイマー管理
+  // 5回終了後の「NEW CHALLENGE」リセット処理
+  resetChallenge() {
+    this.coins = this.initialCoins;
+    this.score = 0;
+    this.gainedCount = 0;
+    this.dom.coins.textContent = this.coins;
+    this.dom.score.textContent = '0000';
+    if (this.dom.prizeCountLabel) {
+      this.dom.prizeCountLabel.textContent = '(0)';
+    }
+    this.dom.prizeList.innerHTML = '<div class="no-prizes">No prizes yet!</div>';
+
+    this.prizeMgr.spawnPrizes();
+    this.state = 'WAIT_COIN';
+    this.setMessage(`USE 1 COIN TO START (${this.coins} LEFT)`);
+    this.updateUI();
+  }
+
   startTimer() {
     if (this.timerInterval) clearInterval(this.timerInterval);
     
@@ -196,21 +223,18 @@ class GameApp {
         this.dom.timer.textContent = `${this.timer}s`;
         
         if (this.timer <= 0) {
-          // タイムアウト時は自動的にアームが下降
           clearInterval(this.timerInterval);
           this.isButton1Pressed = false;
           this.isButton2Pressed = false;
           this.startAutoSequence();
         }
       } else {
-        // オートシークエンス中はタイマー停止
         clearInterval(this.timerInterval);
         this.dom.timer.textContent = '--';
       }
     }, 1000);
   }
 
-  // 自動シーケンス（下降・掴む・上昇・戻る・離す）の開始
   startAutoSequence() {
     clearInterval(this.timerInterval);
     this.dom.timer.textContent = '--';
@@ -220,18 +244,29 @@ class GameApp {
     this.updateUI();
   }
 
-  // UIボタンとステータステキストの活性状態制御
   updateUI() {
-    // ステータステキストのクラス＆文言変更
-    this.dom.status.className = ''; // クラスリセット
+    this.dom.status.className = '';
     
     switch (this.state) {
       case 'WAIT_COIN':
-        this.dom.status.textContent = 'READY';
+        this.dom.status.textContent = `READY (${this.coins} LEFT)`;
         this.dom.status.classList.add('status-ready');
         this.dom.btnRight.disabled = true;
         this.dom.btnForward.disabled = true;
         this.dom.btnCoin.disabled = false;
+        if (this.dom.btnCoinLabel) {
+          this.dom.btnCoinLabel.textContent = `PLAY (USE 1 COIN)`;
+        }
+        break;
+      case 'GAME_OVER':
+        this.dom.status.textContent = 'FINISHED';
+        this.dom.status.classList.add('status-ready');
+        this.dom.btnRight.disabled = true;
+        this.dom.btnForward.disabled = true;
+        this.dom.btnCoin.disabled = false;
+        if (this.dom.btnCoinLabel) {
+          this.dom.btnCoinLabel.textContent = 'RETRY (5 COINS)';
+        }
         break;
       case 'READY':
         this.dom.status.textContent = 'PLAYING';
@@ -258,7 +293,7 @@ class GameApp {
         this.dom.btnRight.disabled = true;
         this.dom.btnForward.disabled = false;
         break;
-      default: // オートシーケンス中 ('DESCENDING', 'GRABBING', 'ASCENDING' 等)
+      default:
         this.dom.status.textContent = 'BUSY';
         this.dom.status.classList.add('status-busy');
         this.dom.btnRight.disabled = true;
@@ -268,7 +303,6 @@ class GameApp {
     }
   }
 
-  // メッセージ表示の更新
   setMessage(text, isAlert = false) {
     this.dom.message.textContent = text;
     if (isAlert) {
@@ -280,39 +314,30 @@ class GameApp {
     }
   }
 
-  // アニメーション＆メインループ
   animate() {
     requestAnimationFrame(() => this.animate());
     
-    // 前フレームからの経過時間（デルタタイム）を取得
-    const dt = Math.min(this.clock.getDelta(), 0.1); // 極端なラグによるジャンプを防ぐため上限0.1秒
+    const dt = Math.min(this.clock.getDelta(), 0.05);
     
-    // 物理世界とアームモデルの更新
     this.updateLogic(dt);
-    
-    // 物理世界のシミュレーションを進め、描画オブジェクトと同期
     this.wm.step(dt);
-    
-    // シーンのレンダリング
     this.wm.render();
   }
 
-  // ゲームのステートマシンロジック
   updateLogic(dt) {
     this.crane.update(dt, this.state);
+    this.prizeMgr.update(dt, this.crane);
     
-    // 常時景品が落とし口に入ったかを検知
+    // 常時ぬいぐるみが落とし口に入ったかを検知
     const gained = this.prizeMgr.checkGainedPrizes();
     if (gained.length > 0) {
       gained.forEach(prize => this.onPrizeGained(prize));
     }
 
-    // ステートごとのクレーン制御
     switch (this.state) {
       case 'MOVE_X':
         if (this.isButton1Pressed) {
           this.crane.moveRight(dt);
-          // 右端に到達した場合は強制的に次のステートへ
           if (this.crane.x >= this.crane.maxX) {
             this.isButton1Pressed = false;
             this.state = 'READY_FORWARD';
@@ -325,7 +350,6 @@ class GameApp {
       case 'MOVE_Z':
         if (this.isButton2Pressed) {
           this.crane.moveForward(dt);
-          // 奥端に到達した場合は自動で下降へ
           if (this.crane.z <= this.crane.minZ) {
             this.isButton2Pressed = false;
             this.startAutoSequence();
@@ -334,24 +358,21 @@ class GameApp {
         break;
         
       case 'DESCENDING':
-        // 下降処理
-        const reachedBottom = this.crane.descend(dt, this.grabHeight);
+        const reachedBottom = this.crane.descend(dt, this.grabHeight, this.prizeMgr.prizes);
         if (reachedBottom) {
           this.state = 'GRABBING';
-          this.setMessage('GRABBING PRIZE...');
+          this.setMessage('SQUEEZING PLUSHIE...');
           
-          // 0.8秒間かけて掴み処理を行う（アームを閉じてホールドする）
-          this.crane.attemptGrab(this.prizeMgr.prizes);
+          this.crane.attemptGrab();
           
           setTimeout(() => {
             this.state = 'ASCENDING';
             this.setMessage('LIFTING UP...');
-          }, 800);
+          }, 1000);
         }
         break;
         
       case 'ASCENDING':
-        // 上昇処理
         const reachedTop = this.crane.ascend(dt);
         if (reachedTop) {
           this.state = 'RETURNING';
@@ -360,56 +381,55 @@ class GameApp {
         break;
         
       case 'RETURNING':
-        // 初期位置（落とし口）に戻る
         const reachedHome = this.crane.returnToHome(dt);
         if (reachedHome) {
           this.state = 'RELEASING';
           this.setMessage('RELEASING...');
           
-          // 景品を離す
           this.crane.releasePrize();
           
-          // 1.5秒待ってからリセット状態に移行（景品が落下しきるのを待つ）
+          // 落としたぬいぐるみが転がり落ちるまで少し待ってからターン終了判定へ
           setTimeout(() => {
             this.state = 'RESETTING';
-          }, 1500);
+          }, 1800);
         }
         break;
         
       case 'RESETTING':
-        // 景品が空になったかチェックし、少なすぎたら補充
-        if (this.prizeMgr.prizes.length < 5) {
-          this.prizeMgr.spawnPrizes();
-        }
-        
-        // 連続プレイのためにクレジット（コイン）があるか確認
         if (this.coins > 0) {
-          this.startPlay();
-        } else {
+          // 1枚ずつ手動でプレイするため、自動で次のコインを消費せず WAIT_COIN で待機する
           this.state = 'WAIT_COIN';
-          this.setMessage('INSERT COIN TO PLAY AGAIN');
+          this.setMessage(`USE 1 COIN FOR NEXT TRY (${this.coins} LEFT)`);
+          this.updateUI();
+        } else {
+          // 5回すべて終了！獲得個数とスコアの結果を表示
+          this.state = 'GAME_OVER';
+          this.setMessage(`FINISH! YOU GOT ${this.gainedCount} PLUSHIES! (${this.score}pts)`, true);
           this.updateUI();
         }
         break;
     }
   }
 
-  // 景品獲得時のイベント処理
   onPrizeGained(prize) {
     this.score += prize.score;
-    // スコアの4桁ゼロ埋め表示
+    this.gainedCount++;
     this.dom.score.textContent = String(this.score).padStart(4, '0');
+    if (this.dom.prizeCountLabel) {
+      this.dom.prizeCountLabel.textContent = `(${this.gainedCount})`;
+    }
     
-    // スコア表示のアニメーション
     this.dom.score.style.animation = 'none';
     setTimeout(() => {
       this.dom.score.style.animation = 'popIn 0.3s ease-out';
     }, 10);
 
-    // 獲得お祝いメッセージ
-    this.setMessage(`GET ${prize.name}! (+${prize.score}pts)`, true);
+    if (this.state === 'GAME_OVER') {
+      this.setMessage(`FINISH! YOU GOT ${this.gainedCount} PLUSHIES! (${this.score}pts)`, true);
+    } else {
+      this.setMessage(`GET ${prize.name}! (+${prize.score}pts)`, true);
+    }
     
-    // 獲得リストのUIを更新
     const emptyMsg = this.dom.prizeList.querySelector('.no-prizes');
     if (emptyMsg) {
       emptyMsg.remove();
@@ -417,22 +437,19 @@ class GameApp {
     
     const prizeItem = document.createElement('div');
     prizeItem.className = 'prize-item';
+    prizeItem.title = `${prize.name} (+${prize.score}pts)`;
     
-    const badge = document.createElement('span');
-    badge.className = 'prize-badge';
-    badge.style.backgroundColor = `#${prize.color.toString(16).padStart(6, '0')}`;
+    const figImg = document.createElement('img');
+    figImg.className = 'prize-figure';
+    figImg.src = this.prizeMgr.renderPlushThumbnail(prize.config);
+    figImg.alt = prize.name;
     
-    const label = document.createTextNode(prize.name);
+    prizeItem.appendChild(figImg);
     
-    prizeItem.appendChild(badge);
-    prizeItem.appendChild(label);
-    
-    // リストの先頭に追加
     this.dom.prizeList.insertBefore(prizeItem, this.dom.prizeList.firstChild);
   }
 }
 
-// ページロード完了時にゲーム起動
 window.addEventListener('DOMContentLoaded', () => {
   new GameApp();
 });
